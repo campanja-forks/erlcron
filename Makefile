@@ -4,10 +4,6 @@
 # this file except in compliance with the License.  You may obtain a
 # copy of the License.
 
-ERLFLAGS= -pa $(CURDIR)/.eunit -pa $(CURDIR)/ebin -pa $(CURDIR)/deps/*/ebin
-
-DEPS_PLT=$(CURDIR)/.deps_plt
-
 # =============================================================================
 # Verify that the programs we need to run are installed on this system
 # =============================================================================
@@ -17,14 +13,15 @@ ifeq ($(ERL),)
 $(error "Erlang not available on this system")
 endif
 
-REBAR=$(shell which rebar)
+REBAR3=$(shell which rebar3)
 
-ifeq ($(REBAR),)
-$(error "Rebar not available on this system")
+ifeq ($(REBAR3),)
+$(error "Rebar3 not available on this system")
 endif
 
-.PHONY: all compile doc clean test dialyzer typer shell distclean pdf \
-	get-deps escript clean-common-test-data rebuild
+.PHONY: all doc deps test typer distclean pdf rebuild
+
+.PHONY: compile upgrade get-deps dialyzer shell escriptize clean
 
 all: compile dialyzer test
 
@@ -32,61 +29,23 @@ all: compile dialyzer test
 # Rules to build the system
 # =============================================================================
 
-get-deps:
-	$(REBAR) get-deps
-	$(REBAR) compile
+deps: get-deps upgrade compile
 
-compile:
-	$(REBAR) skip_deps=true compile
+doc: edoc
 
-doc:
-	$(REBAR) skip_deps=true doc
+get-deps upgrade compile clean eunit ct edoc dialyzer shell:
+	$(REBAR3) $@
 
-eunit: compile clean-common-test-data
-	$(REBAR) skip_deps=true eunit
+test: eunit ct
 
-ct: compile clean-common-test-data
-	$(REBAR) skip_deps=true ct
-
-test: compile eunit ct
-
-$(DEPS_PLT):
-	@echo Building local plt at $(DEPS_PLT)
-	@echo
-	dialyzer --output_plt $(DEPS_PLT) --build_plt \
-	   --apps erts kernel stdlib
-
-dialyzer: $(DEPS_PLT)
-	dialyzer --plt $(DEPS_PLT) --fullpath \
-	-pa $(CURDIR)/ebin --src src
-
-typer:
-	typer --plt $(DEPS_PLT) -r ./src
-
-shell: get-deps compile
-# You often want *rebuilt* rebar tests to be available to the
-# shell you have to call eunit (to get the tests
-# rebuilt). However, eunit runs the tests, which probably
-# fails (thats probably why You want them in the shell). This
-# runs eunit but tells make to ignore the result.
-	- @$(REBAR) skip_deps=true eunit
-	@$(ERL) $(ERLFLAGS)
+typer: dialyzer
+	typer --plt $(shell find $(CURDIR)/_build/ -name "*plt") -r ./src
 
 pdf:
 	pandoc README.md -o README.pdf
 
-clean-common-test-data:
-# We have to do this because of the unique way we generate test
-# data. Without this rebar eunit gets very confused
-	- rm -rf $(CURDIR)/test/*_SUITE_data
+distclean:
+	- rm -rf _build
+	- rm -rf README.pdf
 
-clean: clean-common-test-data
-	- rm -rf $(CURDIR)/test/*.beam
-	- rm -rf $(CURDIR)/logs
-	$(REBAR) skip_deps=true clean
-
-distclean: clean
-	- rm -rf $(DEPS_PLT)
-	- rm -rvf $(CURDIR)/deps/*
-
-rebuild: distclean get-deps compile dialyzer test
+rebuild: distclean get-deps upgrade compile dialyzer test
